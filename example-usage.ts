@@ -11,6 +11,7 @@
 
 import { Context, Schema } from 'koishi';
 import { fontlist } from 'koishi-plugin-glyph';
+/* 注意这里你还需要把 koishi-plugin-glyph 写入 package.json 的 devDependencies 才能过编译*/
 import type { } from 'koishi-plugin-glyph';
 
 export const name = 'example-plugin';
