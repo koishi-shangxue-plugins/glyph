@@ -12,8 +12,6 @@ export const inject = {
   optional: [],
 };
 
-const readme = readFileSync(resolve(__dirname, './../README.md'), 'utf-8');
-
 export const usage = `
 ---
 
@@ -21,13 +19,7 @@ export const usage = `
 
 重启koishi后，才能加载。
 
----
-
-<details>
-<summary>点击查看插件简介和使用说明</summary>
-<br/>
-${readme}
-</details>
+更多说明请查看readme
 
 ---
 `;
@@ -48,18 +40,15 @@ const SUPPORTED_FORMATS = [
 ] as const;
 
 // 字体信息结构
-interface FontListItem
-{
+interface FontListItem {
   name: string;
   format: string;
   size: string;
 }
 
 // 读取字体列表
-function loadFontList(): { options: Schema<string, string>[]; description: string; }
-{
-  try
-  {
+function loadFontList(): { options: Schema<string, string>[]; description: string; } {
+  try {
     const fontRoot = resolve(process.cwd(), 'data/fonts');
     const files = readdirSync(fontRoot);
 
@@ -69,13 +58,11 @@ function loadFontList(): { options: Schema<string, string>[]; description: strin
     ];
     const fontItems: FontListItem[] = [];
 
-    for (const file of files)
-    {
+    for (const file of files) {
       const ext = extname(file).toLowerCase();
 
       // 只处理支持的字体格式
-      if (!SUPPORTED_FORMATS.includes(ext as any))
-      {
+      if (!SUPPORTED_FORMATS.includes(ext as any)) {
         continue;
       }
 
@@ -83,8 +70,7 @@ function loadFontList(): { options: Schema<string, string>[]; description: strin
       const fileStats = statSync(filePath);
 
       // 跳过目录
-      if (fileStats.isDirectory())
-      {
+      if (fileStats.isDirectory()) {
         continue;
       }
 
@@ -92,8 +78,7 @@ function loadFontList(): { options: Schema<string, string>[]; description: strin
       const fontName = basename(file, ext);
 
       // 跳过 default 字体（已在前面添加）
-      if (fontName === 'default')
-      {
+      if (fontName === 'default') {
         continue;
       }
 
@@ -109,20 +94,16 @@ function loadFontList(): { options: Schema<string, string>[]; description: strin
 
     // 生成字体列表描述
     let description = '<br><br>**当前可用字体列表：**<br>- default (不使用自定义字体)<br>';
-    if (fontItems.length === 0)
-    {
+    if (fontItems.length === 0) {
       description += '<br>**暂无其他字体**<br>请将字体文件放入 data/fonts 目录';
-    } else
-    {
-      for (const item of fontItems)
-      {
+    } else {
+      for (const item of fontItems) {
         description += `- ${item.name}<br>`;
       }
     }
 
     return { options: fontOptions, description };
-  } catch (err)
-  {
+  } catch (err) {
     // 如果读取失败（例如目录不存在），返回默认选项
     return {
       options: [Schema.const('default').description('default (不使用自定义字体)')],
@@ -140,8 +121,7 @@ const fontListDescription = fontListData.description;
 export { fontSchemaOptions as fontlist };
 
 // 字体信息接口
-interface FontInfo
-{
+interface FontInfo {
   name: string;        // 字体文件名（不含扩展名）
   dataUrl: string;     // Base64 Data URL
   format: string;      // 字体格式
@@ -150,51 +130,41 @@ interface FontInfo
 
 // 声明 glyph 服务
 declare module 'koishi' {
-  interface Context
-  {
+  interface Context {
     glyph: FontsService;
   }
 }
 
 // Fonts 服务类
-export class FontsService extends Service
-{
+export class FontsService extends Service {
   private fontMap: Map<string, FontInfo> = new Map();
   private fontRoot: string;
 
-  constructor(ctx: Context, public config: FontsService.Config)
-  {
+  constructor(ctx: Context, public config: FontsService.Config) {
     super(ctx, 'glyph', true);
     this.fontRoot = resolve(ctx.baseDir, config.root);
   }
 
-  async start()
-  {
+  async start() {
     // 确保字体目录存在
-    try
-    {
+    try {
       await mkdir(this.fontRoot, { recursive: true });
       this.ctx.logger.debug(`字体目录已就绪: ${this.fontRoot}`);
-    } catch (err)
-    {
+    } catch (err) {
       this.ctx.logger.warn(`创建字体目录失败: ${this.fontRoot}`, err);
     }
 
     // 创建默认字体文件（空文件）
     const defaultFontPath = resolve(this.fontRoot, 'default.ttf');
-    try
-    {
+    try {
       await access(defaultFontPath);
       // 文件已存在，不需要创建
-    } catch
-    {
+    } catch {
       // 文件不存在，创建空文件
-      try
-      {
+      try {
         await writeFile(defaultFontPath, Buffer.alloc(0));
         this.ctx.logger.debug(`已创建默认字体文件: default.ttf`);
-      } catch (err)
-      {
+      } catch (err) {
         this.ctx.logger.warn(`创建默认字体文件失败`, err);
       }
     }
@@ -206,19 +176,15 @@ export class FontsService extends Service
   }
 
   // 加载字体目录中的所有字体文件
-  private async loadFonts()
-  {
-    try
-    {
+  private async loadFonts() {
+    try {
       const files = await readdir(this.fontRoot);
 
-      for (const file of files)
-      {
+      for (const file of files) {
         const ext = extname(file).toLowerCase();
 
         // 只处理支持的字体格式
-        if (!SUPPORTED_FORMATS.includes(ext as any))
-        {
+        if (!SUPPORTED_FORMATS.includes(ext as any)) {
           continue;
         }
 
@@ -226,13 +192,11 @@ export class FontsService extends Service
         const fileStats = await stat(filePath);
 
         // 跳过目录
-        if (fileStats.isDirectory())
-        {
+        if (fileStats.isDirectory()) {
           continue;
         }
 
-        try
-        {
+        try {
           // 获取字体名称（不含扩展名）
           const fontName = basename(file, ext);
 
@@ -241,11 +205,9 @@ export class FontsService extends Service
 
           // 如果是 default 字体且文件为空，使用空字符串作为 dataUrl
           let dataUrl: string;
-          if (fontName === 'default' && buffer.length === 0)
-          {
+          if (fontName === 'default' && buffer.length === 0) {
             dataUrl = '';
-          } else
-          {
+          } else {
             // 转换为 Base64 Data URL
             const base64 = buffer.toString('base64');
             const mimeType = this.getMimeType(ext);
@@ -263,20 +225,17 @@ export class FontsService extends Service
           this.fontMap.set(fontName, fontInfo);
 
           this.ctx.logger.debug(`已加载字体: ${fontName} (${ext}, ${(fileStats.size / 1024).toFixed(2)} KB)`);
-        } catch (err)
-        {
+        } catch (err) {
           this.ctx.logger.warn(`加载字体文件失败: ${file}`, err);
         }
       }
-    } catch (err)
-    {
+    } catch (err) {
       this.ctx.logger.warn(`读取字体目录失败: ${this.fontRoot}，将仅使用默认字体`, err);
     }
   }
 
   // 获取字体的 MIME 类型
-  private getMimeType(ext: string): string
-  {
+  private getMimeType(ext: string): string {
     const mimeTypes: Record<string, string> = {
       '.ttf': 'font/ttf',
       '.otf': 'font/otf',
@@ -294,20 +253,17 @@ export class FontsService extends Service
   }
 
   // 获取字体信息（可选的辅助方法）
-  getFontInfo(name: string): FontInfo | undefined
-  {
+  getFontInfo(name: string): FontInfo | undefined {
     return this.fontMap.get(name);
   }
 
   // 获取所有字体名称列表
-  getFontNames(): string[]
-  {
+  getFontNames(): string[] {
     return Array.from(this.fontMap.keys());
   }
 
   // 根据名称获取字体 Data URL
-  getFontDataUrl(name: string): string | undefined
-  {
+  getFontDataUrl(name: string): string | undefined {
     return this.fontMap.get(name)?.dataUrl;
   }
 
@@ -317,28 +273,23 @@ export class FontsService extends Service
    * @param downloadUrl 字体文件的下载 URL
    * @returns 如果字体已存在返回 true，下载成功后也返回 true，失败返回 false
    */
-  async checkFont(fontName: string, downloadUrl: string): Promise<boolean>
-  {
+  async checkFont(fontName: string, downloadUrl: string): Promise<boolean> {
     // 先检查内存中是否已加载
-    if (this.fontMap.has(fontName))
-    {
+    if (this.fontMap.has(fontName)) {
       this.ctx.logger.debug(`字体已在内存中: ${fontName}`);
       return true;
     }
 
     // 检查文件系统中是否存在该字体文件（任意支持的格式）
-    for (const ext of SUPPORTED_FORMATS)
-    {
+    for (const ext of SUPPORTED_FORMATS) {
       const filePath = resolve(this.fontRoot, `${fontName}${ext}`);
-      try
-      {
+      try {
         await access(filePath);
         // 文件存在，加载到内存
         this.ctx.logger.debug(`字体文件已存在，加载到内存: ${fontName}${ext}`);
         await this.loadSingleFont(filePath);
         return true;
-      } catch
-      {
+      } catch {
         // 文件不存在，继续检查下一个格式
       }
     }
@@ -346,15 +297,13 @@ export class FontsService extends Service
     // 文件不存在，开始下载
     this.ctx.logger.info(`字体不存在，开始下载: ${fontName} from ${downloadUrl}`);
 
-    try
-    {
+    try {
       // 使用 ctx.http.file 下载字体文件
       const response = await this.ctx.http.file(downloadUrl);
 
       // 从 MIME 类型推断文件扩展名
       const ext = this.getExtensionFromMimeType(response.type);
-      if (!ext)
-      {
+      if (!ext) {
         this.ctx.logger.warn(`不支持的字体 MIME 类型: ${response.type}`);
         return false;
       }
@@ -388,22 +337,19 @@ export class FontsService extends Service
 
       this.ctx.logger.info(`字体已加载到内存: ${fontName}`);
       return true;
-    } catch (err)
-    {
+    } catch (err) {
       this.ctx.logger.error(`下载字体失败: ${fontName}`, err);
       return false;
     }
   }
 
   // 加载单个字体文件到内存
-  private async loadSingleFont(filePath: string): Promise<void>
-  {
+  private async loadSingleFont(filePath: string): Promise<void> {
     const file = basename(filePath);
     const ext = extname(file).toLowerCase();
     const fontName = basename(file, ext);
 
-    try
-    {
+    try {
       const fileStats = await stat(filePath);
       const buffer = await readFile(filePath);
 
@@ -422,16 +368,14 @@ export class FontsService extends Service
 
       this.fontMap.set(fontName, fontInfo);
       this.ctx.logger.debug(`已加载字体: ${fontName} (${ext}, ${(fileStats.size / 1024).toFixed(2)} KB)`);
-    } catch (err)
-    {
+    } catch (err) {
       this.ctx.logger.warn(`加载字体文件失败: ${file}`, err);
       throw err;
     }
   }
 
   // 从 MIME 类型获取文件扩展名
-  private getExtensionFromMimeType(mimeType: string): string | null
-  {
+  private getExtensionFromMimeType(mimeType: string): string | null {
     const mimeToExt: Record<string, string> = {
       'font/ttf': '.ttf',
       'font/otf': '.otf',
@@ -448,10 +392,8 @@ export class FontsService extends Service
   }
 }
 
-export namespace FontsService
-{
-  export interface Config
-  {
+export namespace FontsService {
+  export interface Config {
     root: string;
     fontPreview: string;
   }
@@ -473,8 +415,7 @@ export namespace FontsService
 export const Config = FontsService.Config;
 
 // 应用插件
-export function apply(ctx: Context, config: FontsService.Config)
-{
+export function apply(ctx: Context, config: FontsService.Config) {
   // 注册 glyph 服务
   ctx.plugin(FontsService, config);
 }
