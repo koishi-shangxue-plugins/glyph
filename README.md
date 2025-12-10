@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-glyph?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-glyph)
 
-Koishi 的字体管理器插件 - 为其他插件提供统一的字体管理服务
+Koishi 的字体管理器插件
 
 ## 安装
 

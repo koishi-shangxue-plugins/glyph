@@ -16,11 +16,14 @@ export const inject = {
 export const usage = `
 ---
 
-开启插件后，需要把字体文件放到 ./data/fonts 目录
+## 字体加载
 
-重启koishi后，才能加载。
+本插件会自动监听并加载 **./data/fonts** 目录下的字体文件。
 
-更多说明请查看readme
+- **添加字体**: 将字体文件放入该目录，插件会自动识别并添加到配置列表中。
+- **删除字体**: 从目录中移除字体文件，配置列表也会同步更新。
+
+更多说明请查看 Readme。
 
 ---
 `;
@@ -75,19 +78,19 @@ export class FontsService extends Service {
       await mkdir(this.fontRoot, { recursive: true });
       this.ctx.logger.debug(`字体目录已就绪: ${this.fontRoot}`);
     } catch (err) {
-      this.ctx.logger.warn(`创建字体目录失败: ${this.fontRoot}`, err);
+      this.ctx.logger.error(`创建字体目录失败: ${this.fontRoot}`, err);
       // 如果目录创建失败，则不进行后续操作
       return;
     }
 
     // 加载初始字体文件
     await this.loadFonts();
-    this.ctx.logger.info(`已加载 ${this.fontMap.size} 个字体文件`);
+    this.ctx.logger.debug(`已加载 ${this.fontMap.size} 个字体文件`);
 
     // 启动文件监听
     this.watcher = fsWatch(this.fontRoot, (eventType, filename) => {
       if (filename) {
-        this.ctx.logger.info(`字体目录发生变化: ${filename} (${eventType})，重新加载字体列表...`);
+        this.ctx.logger.debug(`字体目录发生变化: ${filename} (${eventType})，重新加载字体列表...`);
         // 使用防抖，避免短时间内重复触发
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.debounceTimer = setTimeout(() => this.loadFonts(), 200);
@@ -99,7 +102,7 @@ export class FontsService extends Service {
     // 停止文件监听
     this.watcher?.close();
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.ctx.logger.info('已停止字体目录监听');
+    this.ctx.logger.debug('已停止字体目录监听');
   }
 
   // 加载字体目录中的所有字体文件
@@ -149,18 +152,24 @@ export class FontsService extends Service {
 
           this.ctx.logger.debug(`已加载字体: ${fontName} (${ext}, ${(fileStats.size / 1024).toFixed(2)} KB)`);
         } catch (err) {
-          this.ctx.logger.warn(`加载字体文件失败: ${file}`, err);
+          this.ctx.logger.error(`加载字体文件失败: ${file}`, err);
         }
       }
     } catch (err) {
-      this.ctx.logger.warn(`读取字体目录失败: ${this.fontRoot}，将仅使用默认字体`, err);
+      this.ctx.logger.error(`读取字体目录失败: ${this.fontRoot}，将仅使用默认字体`, err);
     } finally {
       // 无论成功与否，都更新响应式列表
       const fontNames = Array.from(this.fontMap.keys());
-      // 始终在列表开头添加“无”选项
-      fontNames.unshift('无');
-      this.fontNames.value = fontNames;
-      this.ctx.logger.debug(`字体列表已更新，共 ${fontNames.length} 个选项`);
+
+      // 如果没有实际字体，则添加两个“无”选项以强制显示下拉框
+      if (fontNames.length === 0) {
+        this.fontNames.value = ['无', '无 ']; // 使用一个带空格的“无”作为第二个唯一值
+      } else {
+        // 否则，在列表开头添加一个“无”选项
+        fontNames.unshift('无');
+        this.fontNames.value = fontNames;
+      }
+      this.ctx.logger.debug(`字体列表已更新，共 ${this.fontNames.value.length} 个选项`);
     }
   }
 
@@ -206,7 +215,7 @@ export class FontsService extends Service {
    */
   async checkFont(fontName: string, downloadUrl: string): Promise<boolean> {
     // “无”是一个虚拟字体，永远被认为是存在的
-    if (fontName === '无') {
+    if (fontName?.trim() === '无') {
       return true;
     }
     // 先检查内存中是否已加载
@@ -308,7 +317,7 @@ export class FontsService extends Service {
       this.fontNames.value = Array.from(this.fontMap.keys());
       this.ctx.logger.debug(`已加载字体: ${fontName} (${ext}, ${(fileStats.size / 1024).toFixed(2)} KB)`);
     } catch (err) {
-      this.ctx.logger.warn(`加载字体文件失败: ${file}`, err);
+      this.ctx.logger.error(`加载字体文件失败: ${file}`, err);
       throw err;
     }
   }
@@ -362,8 +371,17 @@ export function apply(ctx: Context, config: FontsService.Config) {
   ctx.inject(['glyph'], (ctx) => {
     // 监听响应式字体列表的变化，并更新 Schema
     const schemaWatcher = watch(ctx.glyph.fontNames, (names) => {
-      // 如果 names 为空或未定义，Schema.union([]) 会创建一个 Schema.never()，这会隐藏配置项，行为正确
-      ctx.schema.set('glyph.fonts', Schema.union(names || []));
+      const finalNames = names || [];
+      // 如果只有两个“无”选项，则将它们渲染为 Schema.const，以确保 UI 正确显示
+      if (finalNames.length === 2 && finalNames[0] === '无' && finalNames[1].trim() === '无') {
+        ctx.schema.set('glyph.fonts', Schema.union([
+          Schema.const('无').description('无'),
+          Schema.const('无 ').description('请将字体文件放入koishi的 ./data/fonts 文件夹下'),
+        ]));
+      } else {
+        // 否则，正常渲染列表
+        ctx.schema.set('glyph.fonts', Schema.union(finalNames));
+      }
     }, { immediate: true });
 
     // 在插件卸载时停止所有监听
