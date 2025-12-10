@@ -3,6 +3,12 @@
  *
  * 使用方法：
  * 1. 将 koishi-plugin-glyph 添加到 devDependencies (仅用于获取类型)
+ ```json
+   "devDependencies": {
+    "koishi": "^4.18.0",
+    "koishi-plugin-glyph": "^3.0.0"
+  }
+ ```
  * 2. 使用 Schema.dynamic('glyph.fonts') 引用字体列表
  * 3. 使用 inject 声明 glyph 服务
  * 4. 通过 ctx.glyph.getFontDataUrl(config.font) 获取字体的 Base64 Data URL
