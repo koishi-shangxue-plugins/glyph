@@ -17,6 +17,10 @@ declare module '@koishijs/console' {
   interface Events {
     'glyph/delete'(fontName: string): void;
     'glyph/upload'(fileName: string, base64Data: string): void;
+    'glyph/load-font'(fontName: string): Promise<string | null>;
+    'glyph/unload-font'(fontName: string): void;
+    'glyph/unload-all'(): void;
+    'glyph/get-memory-info'(): Promise<Array<{ name: string; size: number }>>;
   }
 }
 
@@ -61,6 +65,26 @@ export class GlyphProvider extends DataService<GlyphPayload> {
       // 等待文件系统监听器触发并重新加载字体
       await new Promise(resolve => setTimeout(resolve, 300));
       await this.refresh();
+    });
+
+    // 监听按需加载字体事件
+    ctx.console.addListener('glyph/load-font', async (fontName: string) => {
+      return await this.loadFontOnDemand(fontName);
+    });
+
+    // 监听释放单个字体事件
+    ctx.console.addListener('glyph/unload-font', (fontName: string) => {
+      this.glyphService.unloadFont(fontName);
+    });
+
+    // 监听释放所有字体事件
+    ctx.console.addListener('glyph/unload-all', () => {
+      this.glyphService.unloadAllFonts();
+    });
+
+    // 监听获取内存信息事件
+    ctx.console.addListener('glyph/get-memory-info', async () => {
+      return this.glyphService.getMemoryInfo();
     });
   }
 
@@ -171,6 +195,45 @@ export class GlyphProvider extends DataService<GlyphPayload> {
     } catch (err) {
       logger.error(`上传字体失败: ${fileName}`, err);
       throw err;
+    }
+  }
+
+  // 按需加载字体到内存
+  private async loadFontOnDemand(fontName: string): Promise<string | null> {
+    try {
+      // 检查是否已在内存中
+      const fontInfo = this.glyphService.getFontInfo(fontName);
+      if (fontInfo?.dataUrl) {
+        logger.debug(`字体已在内存中: ${fontName}`);
+        return fontInfo.dataUrl;
+      }
+
+      // 查找字体文件
+      const fontRoot = this.glyphService['fontRoot'];
+      const files = await readdir(fontRoot);
+
+      for (const file of files) {
+        const ext = extname(file).toLowerCase();
+        const name = basename(file, ext);
+
+        if (name === fontName && SUPPORTED_FORMATS.includes(ext as typeof SUPPORTED_FORMATS[number])) {
+          const filePath = resolve(fontRoot, file);
+
+          // 加载字体到内存
+          await this.glyphService['loadSingleFont'](filePath);
+          logger.info(`按需加载字体: ${fontName}`);
+
+          // 返回dataUrl
+          const loadedFont = this.glyphService.getFontInfo(fontName);
+          return loadedFont?.dataUrl || null;
+        }
+      }
+
+      logger.warn(`未找到字体文件: ${fontName}`);
+      return null;
+    } catch (err) {
+      logger.error(`按需加载字体失败: ${fontName}`, err);
+      return null;
     }
   }
 }

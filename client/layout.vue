@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { send, store } from '@koishijs/client'
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile } from 'element-plus'
 
@@ -24,6 +24,8 @@ const uploadProgress = ref(0) // 上传进度 0-100
 const isUploading = ref(false) // 是否正在上传
 const uploadRef = ref() // el-upload 组件引用
 const previewCanvasRef = ref<HTMLCanvasElement>() // Canvas引用
+const memoryInfo = ref<Array<{ name: string; size: number }>>([]) // 内存中的字体信息
+const showMemoryPanel = ref(false) // 是否显示内存面板
 
 // 动态注入字体样式
 const fontStyleId = 'glyph-preview-font-style'
@@ -186,7 +188,12 @@ async function renderPreviewToCanvas() {
 }
 
 // 监听预览字体变化，动态注入样式并渲染Canvas
-watch(previewFont, (font) => {
+watch(previewFont, (font, oldFont) => {
+  // 如果旧字体存在，立即释放其内存
+  if (oldFont && oldFont.name) {
+    send('glyph/unload-font' as any, oldFont.name)
+  }
+
   // 移除旧的样式
   const oldStyle = document.getElementById(fontStyleId)
   if (oldStyle) {
@@ -211,6 +218,26 @@ watch(previewFont, (font) => {
       renderPreviewToCanvas()
     }, 100)
   }
+})
+
+// 监听预览对话框关闭，立即释放字体内存
+watch(showPreviewDialog, async (isOpen, wasOpen) => {
+  if (wasOpen && !isOpen && previewFont.value) {
+    // 对话框从打开变为关闭，释放当前预览的字体
+    const fontName = previewFont.value.name
+    previewFont.value = null
+
+    // 立即释放内存
+    await send('glyph/unload-font' as any, fontName)
+
+    // 更新内存信息显示
+    await updateMemoryInfo()
+  }
+})
+
+// 页面卸载时释放所有字体内存
+onUnmounted(() => {
+  send('glyph/unload-all' as any)
 })
 
 // 监听预览文本变化，重新渲染Canvas
@@ -314,7 +341,28 @@ async function deleteFont(fontName: string) {
 }
 
 // 预览字体
-function previewFontStyle(font: GlyphFont) {
+async function previewFontStyle(font: GlyphFont) {
+  // 如果字体没有dataUrl，先按需加载
+  if (!font.dataUrl) {
+    try {
+      ElMessage.info('正在加载字体...')
+      const dataUrl = await send('glyph/load-font' as any, font.name)
+      if (dataUrl) {
+        font.dataUrl = dataUrl
+        ElMessage.success('字体加载成功')
+        // 更新内存信息
+        await updateMemoryInfo()
+      } else {
+        ElMessage.error('字体加载失败')
+        return
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '未知错误'
+      ElMessage.error('字体加载失败: ' + message)
+      return
+    }
+  }
+
   previewFont.value = font
   showPreviewDialog.value = true
 }
@@ -342,6 +390,48 @@ const filteredFonts = computed(() => {
       font.format?.toLowerCase().includes(searchTerm)
     )
   })
+})
+
+// 更新内存信息
+async function updateMemoryInfo() {
+  try {
+    memoryInfo.value = await send('glyph/get-memory-info' as any)
+  } catch (err) {
+    console.error('获取内存信息失败', err)
+  }
+}
+
+// 格式化内存大小
+function formatMemorySize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB'
+}
+
+// 计算总内存占用
+const totalMemory = computed(() => {
+  return memoryInfo.value.reduce((sum, item) => sum + item.size, 0)
+})
+
+// 定时更新内存信息
+let memoryUpdateTimer: NodeJS.Timeout | null = null
+watch(showMemoryPanel, (show) => {
+  if (show) {
+    updateMemoryInfo()
+    memoryUpdateTimer = setInterval(updateMemoryInfo, 1000) // 每秒更新
+  } else {
+    if (memoryUpdateTimer) {
+      clearInterval(memoryUpdateTimer)
+      memoryUpdateTimer = null
+    }
+  }
+})
+
+// 页面卸载时清理定时器
+onUnmounted(() => {
+  if (memoryUpdateTimer) {
+    clearInterval(memoryUpdateTimer)
+  }
 })
 
 </script>
@@ -422,9 +512,9 @@ const filteredFonts = computed(() => {
         </el-table-column>
         <el-table-column label="操作" width="180" align="center">
           <template #default="{ row }">
-            <el-button size="small" @click="previewFontStyle(row)" :disabled="!row.dataUrl || isUploading">
+            <el-button size="small" @click="previewFontStyle(row)" :disabled="isUploading">
               <k-icon name="eye" />
-              {{ isUploading ? '上传中' : '预览' }}
+              预览
             </el-button>
             <el-button size="small" type="danger" plain @click="deleteFont(row.name)">
               <k-icon name="delete" />
@@ -434,6 +524,39 @@ const filteredFonts = computed(() => {
         </el-table-column>
       </el-table>
     </el-scrollbar>
+
+    <!-- 内存信息悬浮按钮 -->
+    <div class="memory-fab" @click="showMemoryPanel = !showMemoryPanel">
+      <k-icon name="activity" />
+      <span class="memory-count">{{ memoryInfo.length }}</span>
+    </div>
+
+    <!-- 内存信息面板 -->
+    <transition name="slide-fade">
+      <div v-if="showMemoryPanel" class="memory-panel">
+        <div class="memory-header">
+          <h3>内存中的字体</h3>
+          <el-button size="small" text @click="showMemoryPanel = false">
+            <k-icon name="close" />
+          </el-button>
+        </div>
+        <div class="memory-content">
+          <div class="memory-total">
+            <strong>总占用：</strong>{{ formatMemorySize(totalMemory) }}
+          </div>
+          <el-divider style="margin: 12px 0" />
+          <div v-if="memoryInfo.length === 0" class="memory-empty">
+            暂无字体加载到内存
+          </div>
+          <div v-else class="memory-list">
+            <div v-for="item in memoryInfo" :key="item.name" class="memory-item">
+              <span class="memory-name">{{ item.name }}</span>
+              <span class="memory-size">{{ formatMemorySize(item.size) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -508,5 +631,137 @@ const filteredFonts = computed(() => {
 
 .mb-4 {
   margin-bottom: 16px;
+}
+
+.memory-fab {
+  position: fixed;
+  right: 30px;
+  bottom: 30px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s;
+  z-index: 1000;
+
+  &:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  }
+
+  .memory-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: var(--el-color-danger);
+    color: white;
+    border-radius: 10px;
+    padding: 2px 6px;
+    font-size: 12px;
+    font-weight: bold;
+    min-width: 20px;
+    text-align: center;
+  }
+}
+
+.memory-panel {
+  position: fixed;
+  right: 30px;
+  bottom: 100px;
+  width: 320px;
+  max-height: 400px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 999;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--el-border-color);
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+}
+
+.memory-content {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.memory-total {
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  padding: 8px 12px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+
+.memory-empty {
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  padding: 20px;
+}
+
+.memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memory-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 4px;
+  font-size: 13px;
+
+  .memory-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--el-text-color-primary);
+  }
+
+  .memory-size {
+    margin-left: 12px;
+    color: var(--el-text-color-secondary);
+    font-weight: 500;
+  }
+}
+
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-fade-enter-from {
+  transform: translateY(20px);
+  opacity: 0;
+}
+
+.slide-fade-leave-to {
+  transform: translateY(20px);
+  opacity: 0;
 }
 </style>

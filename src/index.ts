@@ -53,6 +53,7 @@ interface FontInfo {
   dataUrl: string;     // Base64 Data URL
   format: string;      // 字体格式
   size: number;        // 文件大小（字节）
+  lastAccess: number;  // 最后访问时间戳
 }
 
 // 声明 glyph 服务
@@ -69,6 +70,9 @@ export class FontsService extends Service {
   public fontNames = ref<string[]>([]); // 响应式的字体名称列表
   private watcher: FSWatcher | null = null; // 文件监听器
   private debounceTimer: NodeJS.Timeout | null = null; // 防抖计时器
+  private cleanupTimer: NodeJS.Timeout | null = null; // 内存清理计时器
+  private readonly CLEANUP_INTERVAL = 30 * 1000; // 30秒清理一次（兜底机制）
+  private readonly FONT_TTL = 60 * 1000; // 字体60秒未使用则清理（兜底机制）
 
   constructor(ctx: Context, public config: FontsService.Config) {
     super(ctx, 'glyph', true);
@@ -86,9 +90,9 @@ export class FontsService extends Service {
       return;
     }
 
-    // 加载初始字体文件
-    await this.loadFonts();
-    this.ctx.logger.debug(`已加载 ${this.fontMap.size} 个字体文件`);
+    // 只加载字体列表，不加载字体内容到内存
+    await this.loadFontNames();
+    this.ctx.logger.debug(`已扫描 ${this.fontNames.value.length} 个字体文件`);
 
     // 启动文件监听
     this.watcher = fsWatch(this.fontRoot, (eventType, filename) => {
@@ -96,16 +100,110 @@ export class FontsService extends Service {
         this.ctx.logger.debug(`字体目录发生变化: ${filename} (${eventType})，重新加载字体列表...`);
         // 使用防抖，避免短时间内重复触发
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(() => this.loadFonts(), 200);
+        this.debounceTimer = setTimeout(() => this.loadFontNames(), 200);
       }
     });
+
+    // 启动内存清理定时器
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupUnusedFonts();
+    }, this.CLEANUP_INTERVAL);
   }
 
   stop() {
     // 停止文件监听
     this.watcher?.close();
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.ctx.logger.debug('已停止字体目录监听');
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    this.ctx.logger.debug('已停止字体目录监听和内存清理');
+  }
+
+  // 只加载字体名称列表，不加载字体内容
+  private async loadFontNames() {
+    const fontNames: string[] = [];
+    try {
+      const files = await readdir(this.fontRoot);
+
+      for (const file of files) {
+        const ext = extname(file).toLowerCase();
+
+        // 只处理支持的字体格式
+        if (!SUPPORTED_FORMATS.includes(ext as any)) {
+          continue;
+        }
+
+        const filePath = resolve(this.fontRoot, file);
+        const fileStats = await stat(filePath);
+
+        // 跳过目录
+        if (fileStats.isDirectory()) {
+          continue;
+        }
+
+        // 获取字体名称（不含扩展名）
+        const fontName = basename(file, ext);
+        fontNames.push(fontName);
+      }
+    } catch (err) {
+      this.ctx.logger.error(`读取字体目录失败: ${this.fontRoot}`, err);
+    } finally {
+      // 更新响应式列表
+      if (fontNames.length === 0) {
+        this.fontNames.value = ['无', '无 '];
+      } else {
+        fontNames.unshift('无');
+        this.fontNames.value = fontNames;
+      }
+      this.ctx.logger.debug(`字体列表已更新，共 ${this.fontNames.value.length} 个选项`);
+    }
+  }
+
+  // 清理长时间未使用的字体（兜底机制）
+  private cleanupUnusedFonts() {
+    const now = Date.now();
+    const toDelete: string[] = [];
+
+    for (const [name, info] of this.fontMap.entries()) {
+      if (now - info.lastAccess > this.FONT_TTL) {
+        toDelete.push(name);
+      }
+    }
+
+    if (toDelete.length > 0) {
+      for (const name of toDelete) {
+        this.fontMap.delete(name);
+      }
+      this.ctx.logger.debug(`[兜底清理] 已清理 ${toDelete.length} 个长时间未使用的字体: ${toDelete.join(', ')}`);
+    }
+  }
+
+  // 立即释放指定字体的内存
+  unloadFont(fontName: string): void {
+    if (this.fontMap.has(fontName)) {
+      this.fontMap.delete(fontName);
+      this.ctx.logger.debug(`已释放字体内存: ${fontName}`);
+    }
+  }
+
+  // 立即释放所有字体的内存
+  unloadAllFonts(): void {
+    const count = this.fontMap.size;
+    if (count > 0) {
+      this.fontMap.clear();
+      this.ctx.logger.debug(`已释放所有字体内存，共 ${count} 个字体`);
+    }
+  }
+
+  // 获取当前内存中的字体信息
+  getMemoryInfo(): Array<{ name: string; size: number }> {
+    const info: Array<{ name: string; size: number }> = [];
+    for (const [name, fontInfo] of this.fontMap.entries()) {
+      info.push({
+        name,
+        size: fontInfo.size
+      });
+    }
+    return info;
   }
 
   // 加载字体目录中的所有字体文件
@@ -148,7 +246,8 @@ export class FontsService extends Service {
             name: fontName,
             dataUrl,
             format: ext.slice(1), // 去掉开头的点
-            size: fileStats.size
+            size: fileStats.size,
+            lastAccess: Date.now()
           };
 
           this.fontMap.set(fontName, fontInfo);
@@ -196,7 +295,12 @@ export class FontsService extends Service {
 
   // 获取字体信息（可选的辅助方法）
   getFontInfo(name: string): FontInfo | undefined {
-    return this.fontMap.get(name);
+    const info = this.fontMap.get(name);
+    if (info) {
+      // 更新最后访问时间
+      info.lastAccess = Date.now();
+    }
+    return info;
   }
 
   // 获取所有字体名称列表
@@ -277,7 +381,8 @@ export class FontsService extends Service {
         name: fontName,
         dataUrl,
         format: ext.slice(1), // 去掉开头的点
-        size: buffer.length
+        size: buffer.length,
+        lastAccess: Date.now()
       };
 
       this.fontMap.set(fontName, fontInfo);
@@ -312,7 +417,8 @@ export class FontsService extends Service {
         name: fontName,
         dataUrl,
         format: ext.slice(1),
-        size: fileStats.size
+        size: fileStats.size,
+        lastAccess: Date.now()
       };
 
       this.fontMap.set(fontName, fontInfo);
