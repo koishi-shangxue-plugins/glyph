@@ -12,8 +12,8 @@ export const reusable = false;
 export const filter = false;
 
 export const inject = {
-  required: ['http', 'logger'],
-  optional: ['console'],
+  required: ['http', 'logger', 'console'],
+  // optional: [],
 };
 
 export const usage = `

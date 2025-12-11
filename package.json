@@ -4,6 +4,12 @@
   "version": "3.0.3",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
+  "files": [
+    "client",
+    "dist",
+    "lib",
+    "src"
+  ],
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -11,10 +17,6 @@
     },
     "./package.json": "./package.json"
   },
-  "files": [
-    "lib",
-    "src"
-  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -45,7 +47,8 @@
       ],
       "required": [
         "http",
-        "logger"
+        "logger",
+        "console"
       ]
     }
   },
