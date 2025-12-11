@@ -49,6 +49,12 @@ export class GlyphProvider extends DataService<GlyphPayload> {
   ) {
     super(ctx, 'glyph');
 
+    // 注册前端入口
+    ctx.console.addEntry({
+      dev: resolve(__dirname, '../client/index.ts'),
+      prod: resolve(__dirname, '../dist'),
+    });
+
     // 监听删除字体事件
     ctx.console.addListener('glyph/delete', async (fontName: string) => {
       await this.deleteFont(fontName);

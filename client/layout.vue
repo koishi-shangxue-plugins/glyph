@@ -135,91 +135,89 @@ const filteredFonts = computed(() => {
 </script>
 
 <template>
-  <k-layout>
-    <div class="container">
-      <!-- 搜索和上传按钮 -->
-      <div class="my-4 flex items-center px-4">
-        <el-input class="flex-1" v-model="keyword" clearable placeholder="输入关键词搜索字体…" #suffix>
-          <k-icon name="search" />
-        </el-input>
-        <el-button class="ml-4" type="primary" @click="showUploadDialog = true">
-          <k-icon name="upload" />
-          上传字体
-        </el-button>
-      </div>
-
-      <!-- 上传对话框 -->
-      <el-dialog v-model="showUploadDialog" title="上传字体文件" width="500px">
-        <el-upload drag :auto-upload="false" :limit="1" accept=".ttf,.otf,.woff,.woff2,.ttc,.eot,.svg"
-          :on-change="handleFileChange">
-          <k-icon name="upload" style="font-size: 48px; margin-bottom: 16px;" />
-          <div class="el-upload__text">
-            将字体文件拖到此处，或<em>点击上传</em>
-          </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              支持 .ttf, .otf, .woff, .woff2, .ttc, .eot, .svg 格式
-            </div>
-          </template>
-        </el-upload>
-        <template #footer>
-          <el-button @click="resetUpload">取消</el-button>
-          <el-button type="primary" @click="uploadFont" :disabled="!uploadFile">确定上传</el-button>
-        </template>
-      </el-dialog>
-
-      <!-- 字体预览对话框 -->
-      <el-dialog v-model="showPreviewDialog" title="字体预览" width="600px">
-        <div v-if="previewFont" class="preview-container">
-          <div class="preview-info">
-            <p><strong>字体名称：</strong>{{ previewFont.name }}</p>
-            <p><strong>文件名：</strong>{{ previewFont.fileName }}</p>
-            <p><strong>格式：</strong>{{ previewFont.format }}</p>
-            <p><strong>大小：</strong>{{ formatSize(previewFont.size) }}</p>
-          </div>
-          <el-divider />
-          <el-input v-model="previewText" type="textarea" :rows="2" placeholder="输入预览文本" class="mb-4" />
-          <div class="preview-text" :style="{
-            fontFamily: previewFont.name,
-            fontSize: '32px',
-            lineHeight: '1.5'
-          }">
-            {{ previewText }}
-          </div>
-        </div>
-      </el-dialog>
-
-      <!-- 字体列表 -->
-      <el-scrollbar class="fonts-list">
-        <template v-if="filteredFonts.length === 0">
-          <el-empty :description="keyword.trim() ? '未找到字体' : '暂无字体'" />
-        </template>
-
-        <el-table v-else :data="filteredFonts" class="fonts-table" border stripe>
-          <el-table-column label="字体名称" prop="name" min-width="150" />
-          <el-table-column label="文件名" prop="fileName" min-width="180" />
-          <el-table-column label="格式" prop="format" width="80" align="center" />
-          <el-table-column label="大小" width="120" align="right">
-            <template #default="{ row }">
-              {{ formatSize(row.size) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="180" align="center">
-            <template #default="{ row }">
-              <el-button size="small" @click="previewFontStyle(row)" :disabled="!row.dataUrl">
-                <k-icon name="eye" />
-                预览
-              </el-button>
-              <el-button size="small" type="danger" plain @click="deleteFont(row.name)">
-                <k-icon name="delete" />
-                删除
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-scrollbar>
+  <div class="container">
+    <!-- 搜索和上传按钮 -->
+    <div class="my-4 flex items-center px-4">
+      <el-input class="flex-1" v-model="keyword" clearable placeholder="输入关键词搜索字体…" #suffix>
+        <k-icon name="search" />
+      </el-input>
+      <el-button class="ml-4" type="primary" @click="showUploadDialog = true">
+        <k-icon name="upload" />
+        上传字体
+      </el-button>
     </div>
-  </k-layout>
+
+    <!-- 上传对话框 -->
+    <el-dialog v-model="showUploadDialog" title="上传字体文件" width="500px">
+      <el-upload drag :auto-upload="false" :limit="1" accept=".ttf,.otf,.woff,.woff2,.ttc,.eot,.svg"
+        :on-change="handleFileChange">
+        <k-icon name="upload" style="font-size: 48px; margin-bottom: 16px;" />
+        <div class="el-upload__text">
+          将字体文件拖到此处，或<em>点击上传</em>
+        </div>
+        <template #tip>
+          <div class="el-upload__tip">
+            支持 .ttf, .otf, .woff, .woff2, .ttc, .eot, .svg 格式
+          </div>
+        </template>
+      </el-upload>
+      <template #footer>
+        <el-button @click="resetUpload">取消</el-button>
+        <el-button type="primary" @click="uploadFont" :disabled="!uploadFile">确定上传</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 字体预览对话框 -->
+    <el-dialog v-model="showPreviewDialog" title="字体预览" width="600px">
+      <div v-if="previewFont" class="preview-container">
+        <div class="preview-info">
+          <p><strong>字体名称：</strong>{{ previewFont.name }}</p>
+          <p><strong>文件名：</strong>{{ previewFont.fileName }}</p>
+          <p><strong>格式：</strong>{{ previewFont.format }}</p>
+          <p><strong>大小：</strong>{{ formatSize(previewFont.size) }}</p>
+        </div>
+        <el-divider />
+        <el-input v-model="previewText" type="textarea" :rows="2" placeholder="输入预览文本" class="mb-4" />
+        <div class="preview-text" :style="{
+          fontFamily: previewFont.name,
+          fontSize: '32px',
+          lineHeight: '1.5'
+        }">
+          {{ previewText }}
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 字体列表 -->
+    <el-scrollbar class="fonts-list">
+      <template v-if="filteredFonts.length === 0">
+        <el-empty :description="keyword.trim() ? '未找到字体' : '暂无字体'" />
+      </template>
+
+      <el-table v-else :data="filteredFonts" class="fonts-table" border stripe>
+        <el-table-column label="字体名称" prop="name" min-width="150" />
+        <el-table-column label="文件名" prop="fileName" min-width="180" />
+        <el-table-column label="格式" prop="format" width="80" align="center" />
+        <el-table-column label="大小" width="120" align="right">
+          <template #default="{ row }">
+            {{ formatSize(row.size) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" align="center">
+          <template #default="{ row }">
+            <el-button size="small" @click="previewFontStyle(row)" :disabled="!row.dataUrl">
+              <k-icon name="eye" />
+              预览
+            </el-button>
+            <el-button size="small" type="danger" plain @click="deleteFont(row.name)">
+              <k-icon name="delete" />
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-scrollbar>
+  </div>
 </template>
 
 <style lang="scss" scoped>

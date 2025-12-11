@@ -399,13 +399,7 @@ export function apply(ctx: Context, config: FontsService.Config) {
 
   // 注册前端页面和Provider
   ctx.inject(['console', 'glyph'], (ctx) => {
-    // 注册Provider服务
+    // 注册Provider服务（会自动注册前端入口）
     ctx.plugin(GlyphProvider, ctx.glyph);
-
-    // 注册前端入口
-    ctx.console.addEntry({
-      dev: resolve(__dirname, '../client/index.ts'),
-      prod: resolve(__dirname, '../dist'),
-    });
   });
 }
