@@ -20,6 +20,8 @@ const showPreviewDialog = ref(false)
 const previewFont = ref<GlyphFont | null>(null)
 const previewText = ref('字体预览 Font Preview 1234567890')
 const uploadFile = ref<File | null>(null)
+const uploadProgress = ref(0) // 上传进度 0-100
+const isUploading = ref(false) // 是否正在上传
 
 // 动态注入字体样式
 const fontStyleId = 'glyph-preview-font-style'
@@ -49,6 +51,8 @@ watch(previewFont, (font) => {
 // 重置上传对话框
 function resetUpload() {
   uploadFile.value = null
+  uploadProgress.value = 0
+  isUploading.value = false
   showUploadDialog.value = false
 }
 
@@ -67,19 +71,43 @@ async function uploadFont() {
   }
 
   try {
+    isUploading.value = true
+    uploadProgress.value = 0
+
     // 读取文件为base64
     const reader = new FileReader()
+
+    // 监听读取进度
+    reader.onprogress = (e) => {
+      if (e.lengthComputable) {
+        uploadProgress.value = Math.round((e.loaded / e.total) * 100)
+      }
+    }
+
     reader.onload = async (e) => {
       const base64Data = e.target?.result as string
       send('glyph/upload' as any, uploadFile.value!.name, base64Data)
+
+      // 上传完成
+      uploadProgress.value = 100
       ElMessage.success('字体上传成功')
-      resetUpload()
+
+      // 延迟关闭对话框，让用户看到100%的进度
+      setTimeout(() => {
+        resetUpload()
+      }, 500)
     }
+
     reader.onerror = () => {
+      isUploading.value = false
+      uploadProgress.value = 0
       ElMessage.error('文件读取失败')
     }
+
     reader.readAsDataURL(uploadFile.value)
   } catch (err: unknown) {
+    isUploading.value = false
+    uploadProgress.value = 0
     const message = err instanceof Error ? err.message : '未知错误'
     ElMessage.error('上传失败: ' + message)
   }
@@ -89,7 +117,7 @@ async function uploadFont() {
 async function deleteFont(fontName: string) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除字体 "${fontName}" 吗？此操作不可恢复。`,
+      `确定要删除字体 "${fontName}" 吗？\n\n此操作不可恢复。`,
       '删除确认',
       {
         confirmButtonText: '确定删除',
@@ -146,14 +174,21 @@ const filteredFonts = computed(() => {
 <template>
   <div class="container">
     <!-- 搜索和上传按钮 -->
-    <div class="my-4 flex items-center px-4">
-      <el-input class="flex-1" v-model="keyword" clearable placeholder="输入关键词搜索字体…" #suffix>
-        <k-icon name="search" />
-      </el-input>
-      <el-button class="ml-4" type="primary" @click="showUploadDialog = true">
-        <k-icon name="upload" />
-        上传字体
-      </el-button>
+    <div class="my-4 px-4">
+      <div class="flex items-center">
+        <el-input class="flex-1" v-model="keyword" clearable placeholder="输入关键词搜索字体…" #suffix>
+          <k-icon name="search" />
+        </el-input>
+        <el-button class="ml-4" type="primary" @click="showUploadDialog = true">
+          <k-icon name="upload" />
+          上传字体
+        </el-button>
+      </div>
+
+      <!-- 上传进度条 -->
+      <div v-if="isUploading" class="mt-3">
+        <el-progress :percentage="uploadProgress" :status="uploadProgress === 100 ? 'success' : undefined" />
+      </div>
     </div>
 
     <!-- 上传对话框 -->
@@ -171,8 +206,10 @@ const filteredFonts = computed(() => {
         </template>
       </el-upload>
       <template #footer>
-        <el-button @click="resetUpload">取消</el-button>
-        <el-button type="primary" @click="uploadFont" :disabled="!uploadFile">确定上传</el-button>
+        <el-button @click="resetUpload" :disabled="isUploading">取消</el-button>
+        <el-button type="primary" @click="uploadFont" :disabled="!uploadFile || isUploading" :loading="isUploading">
+          {{ isUploading ? '上传中' : '确定上传' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -214,9 +251,9 @@ const filteredFonts = computed(() => {
         </el-table-column>
         <el-table-column label="操作" width="180" align="center">
           <template #default="{ row }">
-            <el-button size="small" @click="previewFontStyle(row)" :disabled="!row.dataUrl">
+            <el-button size="small" @click="previewFontStyle(row)" :disabled="!row.dataUrl || isUploading">
               <k-icon name="eye" />
-              预览
+              {{ isUploading ? '上传中' : '预览' }}
             </el-button>
             <el-button size="small" type="danger" plain @click="deleteFont(row.name)">
               <k-icon name="delete" />
