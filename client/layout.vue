@@ -41,24 +41,43 @@ async function checkCharInFont(char: string, fontFamily: string): Promise<boolea
   if (!ctx) return false
 
   const fontSize = 100
-  canvas.width = fontSize * 2
-  canvas.height = fontSize * 2
+  canvas.width = fontSize * 3
+  canvas.height = fontSize * 3
 
-  // 使用一个肯定不存在的字体作为参考
+  // 方法1：检测是否有像素被绘制
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.font = `${fontSize}px "${fontFamily}"`
+  ctx.fillStyle = '#000000'
+  ctx.textBaseline = 'top'
+  ctx.fillText(char, fontSize, fontSize)
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+
+  // 检查是否有非透明像素
+  let hasPixels = false
+  for (let i = 3; i < imageData.length; i += 4) {
+    if (imageData[i] > 0) { // alpha通道
+      hasPixels = true
+      break
+    }
+  }
+
+  if (!hasPixels) {
+    return false // 没有绘制任何像素，字体不包含该字符
+  }
+
+  // 方法2：与不存在的字体对比（用于进一步验证）
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.font = `${fontSize}px "NonExistentFontXYZ123"`
-  ctx.fillText(char, 0, fontSize)
+  ctx.fillText(char, fontSize, fontSize)
   const referenceData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
 
-  // 清空画布
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-  // 使用目标字体绘制
   ctx.font = `${fontSize}px "${fontFamily}"`
-  ctx.fillText(char, 0, fontSize)
+  ctx.fillText(char, fontSize, fontSize)
   const fontData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
 
   // 比较两次绘制的结果
-  // 如果完全相同，说明都使用了fallback，即字体不包含该字符
   let isDifferent = false
   for (let i = 0; i < referenceData.length; i++) {
     if (referenceData[i] !== fontData[i]) {
