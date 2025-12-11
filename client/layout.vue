@@ -30,6 +30,9 @@ const fontStyleId = 'glyph-preview-font-style'
 
 // 检测字体是否包含字符的函数
 async function checkCharInFont(char: string, fontFamily: string): Promise<boolean> {
+  // 空格总是返回true，不需要检测
+  if (char === ' ') return true
+
   // 等待字体加载完成
   await document.fonts.load(`100px "${fontFamily}"`)
 
@@ -41,10 +44,10 @@ async function checkCharInFont(char: string, fontFamily: string): Promise<boolea
   canvas.width = fontSize * 2
   canvas.height = fontSize * 2
 
-  // 使用默认字体绘制
-  ctx.font = `${fontSize}px monospace`
+  // 使用一个肯定不存在的字体作为参考
+  ctx.font = `${fontSize}px "NonExistentFontXYZ123"`
   ctx.fillText(char, 0, fontSize)
-  const defaultData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+  const referenceData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
 
   // 清空画布
   ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -55,12 +58,16 @@ async function checkCharInFont(char: string, fontFamily: string): Promise<boolea
   const fontData = ctx.getImageData(0, 0, canvas.width, canvas.height).data
 
   // 比较两次绘制的结果
-  for (let i = 0; i < defaultData.length; i++) {
-    if (defaultData[i] !== fontData[i]) {
-      return true // 字体包含该字符
+  // 如果完全相同，说明都使用了fallback，即字体不包含该字符
+  let isDifferent = false
+  for (let i = 0; i < referenceData.length; i++) {
+    if (referenceData[i] !== fontData[i]) {
+      isDifferent = true
+      break
     }
   }
-  return false // 字体不包含该字符
+
+  return isDifferent // 不同则说明字体包含该字符
 }
 
 // 渲染预览文本到Canvas
@@ -136,6 +143,12 @@ async function renderPreviewToCanvas() {
     let x = padding
     // 逐字符绘制，检测每个字符
     for (const char of line) {
+      // 跳过空格的渲染（但保留位置）
+      if (char === ' ') {
+        x += ctx.measureText(char).width
+        continue
+      }
+
       const hasChar = await checkCharInFont(char, font.name)
       if (hasChar) {
         // 字体包含该字符，正常绘制
