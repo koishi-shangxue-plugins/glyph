@@ -1,6 +1,6 @@
 import { Context, Schema, Service } from 'koishi';
 import { ref, watch } from '@vue/reactivity';
-import { FSWatcher, watch as fsWatch } from 'node:fs';
+import { FSWatcher, watch as fsWatch, readFileSync, statSync, readdirSync } from 'node:fs';
 import { readdir, readFile, stat, writeFile, mkdir, access, unlink } from 'node:fs/promises';
 import { resolve, extname, basename, dirname } from 'node:path';
 import { GlyphProvider } from './page';
@@ -347,22 +347,21 @@ export class FontsService extends Service {
     return this.fontNames.value;
   }
 
-  // 根据名称获取字体 Data URL（按需加载）
-  async getFontDataUrl(name: string): Promise<string | undefined> {
+  // 根据名称获取字体 Data URL
+  getFontDataUrl(name: string): string | undefined {
     // 检查是否已在内存中
-    const fontInfo = this.fontMap.get(name);
+    let fontInfo = this.fontMap.get(name);
     if (fontInfo) {
       // 更新最后访问时间
       fontInfo.lastAccess = Date.now();
-      this.ctx.logger.debug(`从内存获取字体: ${name}`);
       return fontInfo.dataUrl;
     }
 
-    // 不在内存中，尝试从文件加载
-    this.ctx.logger.debug(`字体不在内存中，开始加载: ${name}`);
+    // 不在内存中，尝试同步加载
+    this.ctx.logger.debug(`字体不在内存中，同步加载: ${name}`);
 
     try {
-      const files = await readdir(this.fontRoot);
+      const files = readdirSync(this.fontRoot);
 
       for (const file of files) {
         const ext = extname(file).toLowerCase();
@@ -370,18 +369,41 @@ export class FontsService extends Service {
 
         if (fontName === name && SUPPORTED_FORMATS.includes(ext as any)) {
           const filePath = resolve(this.fontRoot, file);
-          await this.loadSingleFont(filePath);
 
-          // 加载后返回 dataUrl
-          const loadedFont = this.fontMap.get(name);
-          return loadedFont?.dataUrl;
+          // 同步加载字体
+          try {
+            const fileStats = statSync(filePath);
+            const buffer = readFileSync(filePath);
+
+            // 转换为 Base64 Data URL
+            const base64 = buffer.toString('base64');
+            const mimeType = this.getMimeType(ext);
+            const dataUrl = `data:${mimeType};base64,${base64}`;
+
+            // 存储字体信息
+            fontInfo = {
+              name: fontName,
+              dataUrl,
+              format: ext.slice(1),
+              size: fileStats.size,
+              lastAccess: Date.now()
+            };
+
+            this.fontMap.set(fontName, fontInfo);
+            this.ctx.logger.debug(`已同步加载字体: ${fontName} (${ext}, ${(fileStats.size / 1024).toFixed(2)} KB)`);
+
+            return dataUrl;
+          } catch (err) {
+            this.ctx.logger.error(`同步加载字体文件失败: ${file}`, err);
+            return undefined;
+          }
         }
       }
 
       this.ctx.logger.warn(`未找到字体文件: ${name}`);
       return undefined;
     } catch (err) {
-      this.ctx.logger.error(`加载字体失败: ${name}`, err);
+      this.ctx.logger.error(`同步加载字体失败: ${name}`, err);
       return undefined;
     }
   }
