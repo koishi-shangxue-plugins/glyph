@@ -22,6 +22,7 @@ const previewText = ref('字体预览 Font Preview 1234567890')
 const uploadFile = ref<File | null>(null)
 const uploadProgress = ref(0) // 上传进度 0-100
 const isUploading = ref(false) // 是否正在上传
+const uploadRef = ref() // el-upload 组件引用
 
 // 动态注入字体样式
 const fontStyleId = 'glyph-preview-font-style'
@@ -54,6 +55,8 @@ function resetUpload() {
   uploadProgress.value = 0
   isUploading.value = false
   showUploadDialog.value = false
+  // 清空 el-upload 组件的文件列表
+  uploadRef.value?.clearFiles()
 }
 
 // 处理文件选择
@@ -117,12 +120,13 @@ async function uploadFont() {
 async function deleteFont(fontName: string) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除字体 "${fontName}" 吗？\n\n此操作不可恢复。`,
+      `确定要删除字体 "${fontName}" 吗？<br><br>此操作不可恢复。`,
       '删除确认',
       {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
         type: 'warning',
+        dangerouslyUseHTMLString: true,
       }
     )
 
@@ -193,7 +197,7 @@ const filteredFonts = computed(() => {
 
     <!-- 上传对话框 -->
     <el-dialog v-model="showUploadDialog" title="上传字体文件" width="500px">
-      <el-upload drag :auto-upload="false" :limit="1" accept=".ttf,.otf,.woff,.woff2,.ttc,.eot,.svg"
+      <el-upload ref="uploadRef" drag :auto-upload="false" :limit="1" accept=".ttf,.otf,.woff,.woff2,.ttc,.eot,.svg"
         :on-change="handleFileChange">
         <k-icon name="upload" style="font-size: 48px; margin-bottom: 16px;" />
         <div class="el-upload__text">

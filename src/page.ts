@@ -1,11 +1,11 @@
-import { Context } from 'koishi';
+import { Context, Logger } from 'koishi';
 import { DataService } from '@koishijs/console';
 import { readdir, stat, writeFile, unlink } from 'node:fs/promises';
 import { resolve, extname, basename } from 'node:path';
 import { FontsService } from './index';
 
 import type { } from '@koishijs/console';
-
+const logger = new Logger(`glyph`);
 // 扩展Console类型声明
 declare module '@koishijs/console' {
   namespace Console {
@@ -58,6 +58,8 @@ export class GlyphProvider extends DataService<GlyphPayload> {
     // 监听上传字体事件
     ctx.console.addListener('glyph/upload', async (fileName: string, base64Data: string) => {
       await this.uploadFont(fileName, base64Data);
+      // 等待文件系统监听器触发并重新加载字体
+      await new Promise(resolve => setTimeout(resolve, 300));
       await this.refresh();
     });
   }
@@ -105,7 +107,7 @@ export class GlyphProvider extends DataService<GlyphPayload> {
         });
       }
     } catch (err) {
-      this.ctx.logger.error('读取字体目录失败', err);
+      logger.error('读取字体目录失败', err);
     }
 
     return fonts;
@@ -128,10 +130,10 @@ export class GlyphProvider extends DataService<GlyphPayload> {
       for (const file of matchingFiles) {
         const filePath = resolve(fontRoot, file);
         await unlink(filePath);
-        this.ctx.logger.info(`已删除字体文件: ${file}`);
+        logger.info(`已删除字体文件: ${file}`);
       }
     } catch (err) {
-      this.ctx.logger.error(`删除字体失败: ${fontName}`, err);
+      logger.error(`删除字体失败: ${fontName}`, err);
       throw err;
     }
   }
@@ -160,9 +162,14 @@ export class GlyphProvider extends DataService<GlyphPayload> {
       const filePath = resolve(fontRoot, fileName);
       await writeFile(filePath, buffer);
 
-      this.ctx.logger.info(`字体文件上传成功: ${fileName} (${(buffer.length / 1024).toFixed(2)} KB)`);
+      logger.info(`字体文件上传成功: ${fileName} (${(buffer.length / 1024).toFixed(2)} KB)`);
+
+      // 立即加载新上传的字体到内存，确保前端可以立即预览
+      const fontName = basename(fileName, ext);
+      await this.glyphService['loadSingleFont'](filePath);
+      logger.info(`字体已加载到内存: ${fontName}`);
     } catch (err) {
-      this.ctx.logger.error(`上传字体失败: ${fileName}`, err);
+      logger.error(`上传字体失败: ${fileName}`, err);
       throw err;
     }
   }

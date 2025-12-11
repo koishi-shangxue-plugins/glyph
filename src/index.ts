@@ -292,8 +292,8 @@ export class FontsService extends Service {
     }
   }
 
-  // 加载单个字体文件到内存
-  private async loadSingleFont(filePath: string): Promise<void> {
+  // 加载单个字体文件到内存（公共方法，供 GlyphProvider 调用）
+  async loadSingleFont(filePath: string): Promise<void> {
     const file = basename(filePath);
     const ext = extname(file).toLowerCase();
     const fontName = basename(file, ext);

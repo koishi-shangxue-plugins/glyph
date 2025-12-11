@@ -50,14 +50,14 @@
     }
   },
   "peerDependencies": {
-    "@koishijs/plugin-console": "^5.11.0",
+    "@koishijs/plugin-console": "^5.30.11",
     "koishi": "^4.18.7"
   },
   "devDependencies": {
-    "koishi": "^4.18.7",
-    "@koishijs/console": "^1.3.8",
-    "@koishijs/client": "^5.30.3",
-    "element-plus": "^2.8.8"
+    "@koishijs/client": "^5.30.11",
+    "@koishijs/console": "^5.30.11",
+    "element-plus": "^2.8.8",
+    "koishi": "^4.18.7"
   },
   "dependencies": {
     "@vue/reactivity": "^3.5.25"
