@@ -71,8 +71,7 @@ export class FontsService extends Service {
   private watcher: FSWatcher | null = null; // 文件监听器
   private debounceTimer: NodeJS.Timeout | null = null; // 防抖计时器
   private cleanupTimer: NodeJS.Timeout | null = null; // 内存清理计时器
-  private readonly CLEANUP_INTERVAL = 30 * 1000; // 30秒清理一次（兜底机制）
-  private readonly FONT_TTL = 60 * 1000; // 字体60秒未使用则清理（兜底机制）
+  private readonly CLEANUP_INTERVAL = 30 * 1000; // 30秒清理一次
 
   constructor(ctx: Context, public config: FontsService.Config) {
     super(ctx, 'glyph', true);
@@ -108,6 +107,8 @@ export class FontsService extends Service {
     this.cleanupTimer = setInterval(() => {
       this.cleanupUnusedFonts();
     }, this.CLEANUP_INTERVAL);
+
+    this.ctx.logger.debug(`字体内存管理已启动，TTL: ${this.config.fontTTL} 分钟`);
   }
 
   stop() {
@@ -158,13 +159,14 @@ export class FontsService extends Service {
     }
   }
 
-  // 清理长时间未使用的字体（兜底机制）
+  // 清理长时间未使用的字体
   private cleanupUnusedFonts() {
     const now = Date.now();
+    const ttl = this.config.fontTTL * 60 * 1000; // 转换为毫秒
     const toDelete: string[] = [];
 
     for (const [name, info] of this.fontMap.entries()) {
-      if (now - info.lastAccess > this.FONT_TTL) {
+      if (now - info.lastAccess > ttl) {
         toDelete.push(name);
       }
     }
@@ -173,7 +175,7 @@ export class FontsService extends Service {
       for (const name of toDelete) {
         this.fontMap.delete(name);
       }
-      this.ctx.logger.debug(`[兜底清理] 已清理 ${toDelete.length} 个长时间未使用的字体: ${toDelete.join(', ')}`);
+      this.ctx.logger.debug(`已清理 ${toDelete.length} 个超过 ${this.config.fontTTL} 分钟未使用的字体: ${toDelete.join(', ')}`);
     }
   }
 
@@ -309,9 +311,43 @@ export class FontsService extends Service {
     return this.fontNames.value;
   }
 
-  // 根据名称获取字体 Data URL
-  getFontDataUrl(name: string): string | undefined {
-    return this.fontMap.get(name)?.dataUrl;
+  // 根据名称获取字体 Data URL（按需加载）
+  async getFontDataUrl(name: string): Promise<string | undefined> {
+    // 检查是否已在内存中
+    const fontInfo = this.fontMap.get(name);
+    if (fontInfo) {
+      // 更新最后访问时间
+      fontInfo.lastAccess = Date.now();
+      this.ctx.logger.debug(`从内存获取字体: ${name}`);
+      return fontInfo.dataUrl;
+    }
+
+    // 不在内存中，尝试从文件加载
+    this.ctx.logger.debug(`字体不在内存中，开始加载: ${name}`);
+
+    try {
+      const files = await readdir(this.fontRoot);
+
+      for (const file of files) {
+        const ext = extname(file).toLowerCase();
+        const fontName = basename(file, ext);
+
+        if (fontName === name && SUPPORTED_FORMATS.includes(ext as any)) {
+          const filePath = resolve(this.fontRoot, file);
+          await this.loadSingleFont(filePath);
+
+          // 加载后返回 dataUrl
+          const loadedFont = this.fontMap.get(name);
+          return loadedFont?.dataUrl;
+        }
+      }
+
+      this.ctx.logger.warn(`未找到字体文件: ${name}`);
+      return undefined;
+    } catch (err) {
+      this.ctx.logger.error(`加载字体失败: ${name}`, err);
+      return undefined;
+    }
   }
 
   /**
@@ -321,12 +357,16 @@ export class FontsService extends Service {
    * @returns 如果字体已存在返回 true，下载成功后也返回 true，失败返回 false
    */
   async checkFont(fontName: string, downloadUrl: string): Promise<boolean> {
-    // “无”是一个虚拟字体，永远被认为是存在的
+    // "无"是一个虚拟字体，永远被认为是存在的
     if (fontName?.trim() === '无') {
       return true;
     }
+
     // 先检查内存中是否已加载
-    if (this.fontMap.has(fontName)) {
+    const fontInfo = this.fontMap.get(fontName);
+    if (fontInfo) {
+      // 更新最后访问时间
+      fontInfo.lastAccess = Date.now();
       this.ctx.logger.debug(`字体已在内存中: ${fontName}`);
       return true;
     }
@@ -336,8 +376,8 @@ export class FontsService extends Service {
       const filePath = resolve(this.fontRoot, `${fontName}${ext}`);
       try {
         await access(filePath);
-        // 文件存在，加载到内存
-        this.ctx.logger.debug(`字体文件已存在，加载到内存: ${fontName}${ext}`);
+        // 文件存在，按需加载到内存
+        this.ctx.logger.debug(`字体文件已存在: ${fontName}${ext}`);
         await this.loadSingleFont(filePath);
         return true;
       } catch {
@@ -453,19 +493,31 @@ export namespace FontsService {
   export interface Config {
     root: string;
     fontPreview: string;
+    fontTTL: number;
   }
 
-  export const Config: Schema<Config> = Schema.object({
-    root: Schema.path({
-      filters: ['directory'],
-      allowCreate: true,
-    })
-      .default('data/fonts')
-      .description('存放字体文件的目录路径'),
+  export const Config: Schema<Config> = Schema.intersect([
+    Schema.object({
+      root: Schema.path({
+        filters: ['directory'],
+        allowCreate: true,
+      })
+        .default('data/fonts')
+        .description('存放字体文件的目录路径'),
 
-    fontPreview: Schema.dynamic('glyph.fonts')
-      .description(`字体列表展示<br>**此列表会自动监听字体目录的变化并实时更新**<br>> 用于预览所有可用字体，无实际功能`)
-  });
+      fontTTL: Schema.number()
+        .default(5)
+        .min(1)
+        .max(60)
+        .description('字体在内存中的存活时间（分钟）<br>超过此时间未使用的字体将被自动释放')
+    }).description('基础设置'),
+
+    Schema.object({
+      fontPreview: Schema.dynamic('glyph.fonts')
+        .description(`开启插件后，将展示可用的字体列表<br>**此列表会自动监听字体目录的变化并实时更新**<br>> 用于预览所有可用字体，无实际功能`),
+    }).description('可用字体'),
+  ])
+
 }
 
 // 导出配置
